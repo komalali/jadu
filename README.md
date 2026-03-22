@@ -1,6 +1,6 @@
 # Jadu
 
-A CLI gardening assistant powered by Claude. Manages your plant catalog, seed inventory, and planting log through natural conversation. Knows when to plant your seeds, checks the weather, and gives you weekly planting recommendations.
+A CLI gardening assistant powered (and built) by Claude. Manages your plant catalog, seed inventory, and planting log through natural conversation. Knows when to plant your seeds, checks the weather, and gives you weekly planting recommendations.
 
 Built with a manual agentic tool-calling loop — no frameworks, no abstractions.
 
