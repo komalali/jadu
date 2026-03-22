@@ -1,11 +1,11 @@
 import { Marked } from "marked";
+import { markedTerminal } from "marked-terminal";
 
 let _marked: Marked | null = null;
 
-export async function renderMarkdown(text: string): Promise<string> {
+export function renderMarkdown(text: string): string {
   if (!_marked) {
-    const markedTerminal = (await import("marked-terminal")).default;
-    _marked = new Marked(markedTerminal() as any);
+    _marked = new Marked(markedTerminal());
   }
   return (_marked.parse(text) as string).replace(/\n+$/, "");
 }

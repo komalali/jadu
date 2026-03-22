@@ -79,7 +79,7 @@ export class AgentLoop {
           process.stdout.write(`\x1b[${lineCount}A\x1b[0J`);
 
           // Render and print markdown (trim trailing newlines from renderer)
-          const rendered = await renderMarkdown(iterationText);
+          const rendered = renderMarkdown(iterationText);
           process.stdout.write(rendered);
         }
         return fullText;
