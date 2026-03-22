@@ -2,7 +2,9 @@
 
 ## Overview
 
-A CLI-based tool-calling agent built with TypeScript that manages personal productivity data (emails, calendar, habits, notes, plant catalog) through a SQLite database. The agent uses the Claude API with a manual agentic loop — no high-level frameworks — to maximize understanding of how tool-calling agents work.
+A CLI-based tool-calling agent built with TypeScript that manages personal productivity data (habits, notes, and a garden management system) through a SQLite database. The agent uses the Claude API with a manual agentic loop — no high-level frameworks — to maximize understanding of how tool-calling agents work.
+
+The garden system is the flagship feature: the agent tracks your seed inventory, knows ideal planting windows, checks weather forecasts via web search, and generates weekly reports recommending what to plant and when.
 
 ## Goals
 
@@ -31,7 +33,7 @@ Four layers:
 │  │        │ │  code exec)│  │
 │  └────────┘ └────────────┘  │
 ├─────────────────────────────┤
-│       SQLite Database       │  ← emails, calendar, habits, notes, plants
+│       SQLite Database       │  ← habits, notes, seeds, plants, plantings
 └─────────────────────────────┘
 ```
 
@@ -49,29 +51,7 @@ Four layers:
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
-CREATE TABLE emails (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  subject TEXT NOT NULL,
-  from_address TEXT,
-  to_address TEXT,
-  body TEXT,
-  is_read BOOLEAN DEFAULT 0,
-  is_starred BOOLEAN DEFAULT 0,
-  folder TEXT DEFAULT 'inbox',
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  description TEXT,
-  start_time TEXT NOT NULL,
-  end_time TEXT NOT NULL,
-  location TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
-);
-
+-- Habit tracking
 CREATE TABLE habits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -87,6 +67,7 @@ CREATE TABLE habit_logs (
   note TEXT
 );
 
+-- Notes
 CREATE TABLE notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
@@ -96,6 +77,7 @@ CREATE TABLE notes (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Plant catalog (reference info about plant types)
 CREATE TABLE plants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -111,9 +93,24 @@ CREATE TABLE plants (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Seed inventory (what seeds you have on hand)
+CREATE TABLE seeds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
+  source TEXT,                    -- where you got them, e.g., 'Baker Creek', 'saved from 2025'
+  quantity TEXT,                  -- e.g., '1 packet', '~50 seeds', 'handful'
+  plant_window_start TEXT,        -- earliest month/date to plant, e.g., '03-01' (March 1)
+  plant_window_end TEXT,          -- latest month/date to plant, e.g., '05-15' (May 15)
+  year_purchased INTEGER,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Garden log (individual plantings from your seed inventory)
 CREATE TABLE plantings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   plant_id INTEGER NOT NULL REFERENCES plants(id) ON DELETE CASCADE,
+  seed_id INTEGER REFERENCES seeds(id) ON DELETE SET NULL,
   planted_at TEXT NOT NULL,
   location TEXT,
   expected_germination TEXT,
@@ -126,24 +123,37 @@ CREATE TABLE plantings (
 );
 
 -- Indexes for common query patterns
-CREATE INDEX idx_events_start_time ON events(start_time);
 CREATE INDEX idx_habit_logs_habit_id ON habit_logs(habit_id, logged_at);
-CREATE INDEX idx_emails_folder ON emails(folder, is_read);
 CREATE INDEX idx_plantings_plant_id ON plantings(plant_id);
 CREATE INDEX idx_plantings_status ON plantings(status);
+CREATE INDEX idx_seeds_plant_id ON seeds(plant_id);
+CREATE INDEX idx_seeds_plant_window ON seeds(plant_window_start, plant_window_end);
 ```
+
+### Three-Table Garden Model
+
+- **`plants`** = reference catalog — "Roma Tomatoes take 5-10 days to germinate, 75-85 days to harvest, need full sun"
+- **`seeds`** = your inventory — "I have 1 packet of Roma Tomato seeds from Baker Creek, best planted March through May"
+- **`plantings`** = garden log — "I planted Roma Tomatoes in the raised bed on March 15"
+
+A seed references a plant (for growing data). When you plant a seed, a planting record is created. The agent checks `seeds.plant_window_start/end` against the current date and weather to generate weekly planting reports.
+
+### Weekly Planting Report Flow
+
+1. Agent calls `get_current_date` to know the current week
+2. Agent queries `seeds` joined with `plants` for seeds whose planting window includes this week
+3. Agent uses **web search** to check the weather forecast for the coming days
+4. Agent recommends the best day to plant based on temperature, rain, frost risk, and plant requirements
 
 Design choices:
 - `PRAGMA foreign_keys = ON` — SQLite does not enforce FK constraints by default; this must be set per connection
 - `PRAGMA journal_mode = WAL` — crash-safe writes, allows concurrent reads during writes
-- `ON DELETE CASCADE` on foreign keys — deleting a habit removes its logs, deleting a plant removes its plantings
+- `ON DELETE CASCADE` on foreign keys — deleting a habit removes its logs, deleting a plant removes its seeds/plantings
+- `ON DELETE SET NULL` on `plantings.seed_id` — if a seed record is removed, the planting history is preserved
 - Dates as ISO 8601 text (SQLite has no native datetime)
+- Planting windows as `MM-DD` strings — simple month-day format for seasonal comparisons
 - Tags as comma-separated text (avoids join table complexity)
 - Separate `habit_logs` table for streak/completion queries
-- `folder` on emails for organization without deletion
-- `plants` as a catalog, `plantings` as individual garden log entries
-- Recurring events removed — out of scope for v1, avoids under-specified behavior
-- `to_address` is a single recipient — sufficient for a personal simulation, not meant to model real email multi-recipient semantics
 
 ### Schema Initialization
 
@@ -225,7 +235,7 @@ Reads and writes are separated intentionally. This makes the permission boundary
 
 | Tool | Use Case |
 |------|----------|
-| Web search (`web_search_20260209`) | Look up gardening info, productivity tips, etc. |
+| Web search (`web_search_20260209`) | Check weather forecasts for planting recommendations, look up gardening info |
 | Code execution (`code_execution_20260120`) | Compute stats, generate charts from habit/planting data |
 
 These are declared in the tools array but executed server-side by Anthropic.
@@ -295,8 +305,9 @@ Key properties:
 ## System Prompt
 
 ```
-You are a personal productivity assistant. You help manage emails,
-calendar events, habits, notes, and a garden/plant catalog.
+You are a personal productivity and garden management assistant. You help
+manage habits, notes, and a complete garden system (plant catalog, seed
+inventory, and planting log).
 
 All data is stored in a SQLite database. Use the list_tables tool to
 discover the schema before writing queries. Use query_database for
@@ -306,8 +317,15 @@ When the user asks you to do something, take action — don't just
 describe what you would do. Use your tools to actually create, update,
 or query data.
 
-When working with plants, compute expected germination and harvest
-dates based on the plant catalog data and the planting date.
+Garden management:
+- The plants table is a reference catalog of plant growing information.
+- The seeds table tracks the user's seed inventory and planting windows.
+- The plantings table logs what was actually planted and tracks growth.
+- When creating a planting, compute expected germination and harvest dates
+  from the plant catalog data and the planting date.
+- When asked for a weekly planting report, check which seeds have a
+  planting window that includes the current week, then use web search
+  to check the weather forecast and recommend the best planting day.
 
 Always use get_current_date when you need today's date — never guess.
 ```
@@ -371,9 +389,11 @@ Claude Opus 4.6 (`claude-opus-4-6`) with adaptive thinking (`thinking: { type: "
 
 ## Future Enhancements (Out of Scope for v1)
 
-- Real email/calendar integrations (Gmail, Google Calendar via OAuth)
+- Email and calendar management (Gmail, Google Calendar via OAuth)
 - User confirmation prompts before write operations
 - Conversation persistence across sessions
 - Streaming output for long responses
-- Recurring events support
 - Conversation history compaction for long sessions
+- Dedicated weather API tool (replace web search for more structured forecasts)
+- Garden companion planting suggestions
+- Frost date tracking by zone
