@@ -2,6 +2,9 @@
   "name": "jadu",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "jadu": "./src/index.ts"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
     "test": "vitest run",

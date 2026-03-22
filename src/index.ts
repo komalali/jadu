@@ -1,3 +1,4 @@
+#!/usr/bin/env tsx
 import * as readline from "readline";
 import Anthropic from "@anthropic-ai/sdk";
 import { CONFIG, getApiKey } from "./config";
