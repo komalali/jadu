@@ -27,7 +27,7 @@ function main(): void {
     output: process.stdout,
   });
 
-  console.log("Jadu — Personal Productivity Agent");
+  console.log("Jadu — Gardening Assistant");
   console.log('Type your message, or "exit" to quit.\n');
 
   function prompt(): void {

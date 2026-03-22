@@ -1,8 +1,8 @@
-# Jadu — Personal Productivity Agent
+# Jadu — Gardening Assistant
 
 ## What this is
 
-A CLI tool-calling agent built with TypeScript. Uses the Claude API with a **manual agentic loop** (no SDK abstractions) to manage habits, notes, and garden data (plants, seeds, plantings) via SQLite.
+A CLI tool-calling agent built with TypeScript. Uses the Claude API with a **manual agentic loop** (no SDK abstractions) to manage garden data (plants, seeds, plantings) and notes via SQLite.
 
 This is a learning project — the goal is deep understanding of agent architecture, not just a working product.
 
@@ -32,12 +32,12 @@ CLI REPL (index.ts)
 
 ## Database
 
-6 tables: `habits`, `habit_logs`, `notes`, `plants`, `seeds`, `plantings`. Schema is in `src/db/schema.sql`. Database file lives at `data/jadu.db` (gitignored).
+4 tables: `notes`, `plants`, `seeds`, `plantings`. Schema is in `src/db/schema.sql`. Database file lives at `data/jadu.db` (gitignored).
 
-The garden system uses a three-table model:
 - `plants` = reference catalog (germination days, harvest days, sun/water needs)
 - `seeds` = inventory (what seeds you have, planting windows as MM-DD)
 - `plantings` = garden log (what was planted, expected/actual dates, status)
+- `notes` = agent scratchpad for things that don't fit elsewhere (soil tests, garden layout ideas, observations)
 
 ## Key design decisions
 
@@ -58,6 +58,5 @@ The garden system uses a three-table model:
 ## Planned next steps
 
 - Streaming output (use `client.messages.stream()` instead of `.create()`)
-- Real email/calendar integrations
 - Conversation persistence across sessions
 - Conversation compaction for long sessions

@@ -23,8 +23,6 @@ describe("createDatabase", () => {
 
     const tableNames = tables.map((t) => t.name);
     expect(tableNames).toEqual([
-      "habit_logs",
-      "habits",
       "notes",
       "plantings",
       "plants",
@@ -66,7 +64,7 @@ describe("createDatabase", () => {
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
       )
       .all();
-    expect(tables.length).toBe(6);
+    expect(tables.length).toBe(4);
 
     db2.close();
   });

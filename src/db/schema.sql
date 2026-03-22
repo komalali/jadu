@@ -1,18 +1,3 @@
-CREATE TABLE IF NOT EXISTS habits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  description TEXT,
-  frequency TEXT DEFAULT 'daily',
-  created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS habit_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
-  logged_at TEXT DEFAULT (datetime('now')),
-  note TEXT
-);
-
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
@@ -64,7 +49,6 @@ CREATE TABLE IF NOT EXISTS plantings (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_habit_logs_habit_id ON habit_logs(habit_id, logged_at);
 CREATE INDEX IF NOT EXISTS idx_plantings_plant_id ON plantings(plant_id);
 CREATE INDEX IF NOT EXISTS idx_plantings_status ON plantings(status);
 CREATE INDEX IF NOT EXISTS idx_seeds_plant_id ON seeds(plant_id);

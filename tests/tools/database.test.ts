@@ -25,27 +25,27 @@ afterEach(() => {
 
 describe("queryDatabaseHandler", () => {
   it("returns rows as JSON array", () => {
-    db.exec("INSERT INTO habits (name) VALUES ('Exercise')");
-    db.exec("INSERT INTO habits (name) VALUES ('Read')");
+    db.exec("INSERT INTO plants (name) VALUES ('Tomato')");
+    db.exec("INSERT INTO plants (name) VALUES ('Basil')");
 
     const handler = queryDatabaseHandler(db);
-    const result = JSON.parse(handler({ query: "SELECT name FROM habits ORDER BY name" }));
+    const result = JSON.parse(handler({ query: "SELECT name FROM plants ORDER BY name" }));
 
     expect(result).toHaveLength(2);
-    expect(result[0].name).toBe("Exercise");
-    expect(result[1].name).toBe("Read");
+    expect(result[0].name).toBe("Basil");
+    expect(result[1].name).toBe("Tomato");
   });
 
   it("returns empty array for no results", () => {
     const handler = queryDatabaseHandler(db);
-    const result = handler({ query: "SELECT * FROM habits" });
+    const result = handler({ query: "SELECT * FROM plants" });
     expect(result).toBe("[]");
   });
 
   it("rejects non-SELECT statements", () => {
     const handler = queryDatabaseHandler(db);
     expect(() =>
-      handler({ query: "DELETE FROM habits" })
+      handler({ query: "DELETE FROM plants" })
     ).toThrow();
   });
 });
@@ -54,31 +54,31 @@ describe("executeDatabaseHandler", () => {
   it("executes INSERT and returns affected rows", () => {
     const handler = executeDatabaseHandler(db);
     const result = handler({
-      statement: "INSERT INTO habits (name, description) VALUES ('Meditate', 'Daily meditation')",
+      statement: "INSERT INTO plants (name, description) VALUES ('Tomato', 'Classic garden plant')",
     });
     expect(result).toBe("OK: 1 row(s) affected");
 
-    const rows = db.prepare("SELECT * FROM habits").all() as { name: string }[];
+    const rows = db.prepare("SELECT * FROM plants").all() as { name: string }[];
     expect(rows).toHaveLength(1);
-    expect(rows[0].name).toBe("Meditate");
+    expect(rows[0].name).toBe("Tomato");
   });
 
   it("executes UPDATE and returns affected rows", () => {
-    db.exec("INSERT INTO habits (name) VALUES ('Exercise')");
+    db.exec("INSERT INTO plants (name) VALUES ('Tomato')");
 
     const handler = executeDatabaseHandler(db);
     const result = handler({
-      statement: "UPDATE habits SET name = 'Workout' WHERE name = 'Exercise'",
+      statement: "UPDATE plants SET name = 'Roma Tomato' WHERE name = 'Tomato'",
     });
     expect(result).toBe("OK: 1 row(s) affected");
   });
 
   it("executes DELETE and returns affected rows", () => {
-    db.exec("INSERT INTO habits (name) VALUES ('Exercise')");
+    db.exec("INSERT INTO plants (name) VALUES ('Tomato')");
 
     const handler = executeDatabaseHandler(db);
     const result = handler({
-      statement: "DELETE FROM habits WHERE name = 'Exercise'",
+      statement: "DELETE FROM plants WHERE name = 'Tomato'",
     });
     expect(result).toBe("OK: 1 row(s) affected");
   });
@@ -86,14 +86,14 @@ describe("executeDatabaseHandler", () => {
   it("rejects DROP statements", () => {
     const handler = executeDatabaseHandler(db);
     expect(() =>
-      handler({ statement: "DROP TABLE habits" })
+      handler({ statement: "DROP TABLE plants" })
     ).toThrow("Only INSERT, UPDATE, and DELETE statements are allowed");
   });
 
   it("rejects ALTER statements", () => {
     const handler = executeDatabaseHandler(db);
     expect(() =>
-      handler({ statement: "ALTER TABLE habits ADD COLUMN foo TEXT" })
+      handler({ statement: "ALTER TABLE plants ADD COLUMN foo TEXT" })
     ).toThrow("Only INSERT, UPDATE, and DELETE statements are allowed");
   });
 
@@ -107,7 +107,7 @@ describe("executeDatabaseHandler", () => {
   it("rejects SELECT statements", () => {
     const handler = executeDatabaseHandler(db);
     expect(() =>
-      handler({ statement: "SELECT * FROM habits" })
+      handler({ statement: "SELECT * FROM plants" })
     ).toThrow("Only INSERT, UPDATE, and DELETE statements are allowed");
   });
 });
@@ -119,17 +119,15 @@ describe("listTablesHandler", () => {
 
     const tableNames = Object.keys(result).sort();
     expect(tableNames).toEqual([
-      "habit_logs",
-      "habits",
       "notes",
       "plantings",
       "plants",
       "seeds",
     ]);
 
-    const habitColumns = result.habits.map((c: { name: string }) => c.name);
-    expect(habitColumns).toContain("id");
-    expect(habitColumns).toContain("name");
-    expect(habitColumns).toContain("frequency");
+    const plantColumns = result.plants.map((c: { name: string }) => c.name);
+    expect(plantColumns).toContain("id");
+    expect(plantColumns).toContain("name");
+    expect(plantColumns).toContain("variety");
   });
 });
