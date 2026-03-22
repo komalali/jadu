@@ -6,12 +6,30 @@ let _marked: Marked | null = null;
 
 export function renderMarkdown(text: string): string {
   if (!_marked) {
+    // Downgrade h1 to h2 so marked-terminal doesn't center the first heading
+    const preprocessor = {
+      extensions: [
+        {
+          name: "heading" as const,
+          level: "block" as const,
+          tokenizer(): undefined {
+            return undefined; // fall through to default
+          },
+        },
+      ],
+      hooks: {
+        preprocess(src: string): string {
+          // Replace leading "# " with "## " so all headings render the same
+          return src.replace(/^# /gm, "## ");
+        },
+      },
+    };
+
     _marked = new Marked(
+      preprocessor,
       markedTerminal({
-        // Use consistent heading style (no right-aligned first heading)
         firstHeading: chalk.bold.green,
         heading: chalk.bold.green,
-        // Don't show section prefix (the ## markers)
         showSectionPrefix: false,
       })
     );
