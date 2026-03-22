@@ -1,10 +1,14 @@
 import "dotenv/config";
+import path from "path";
+import os from "os";
+
+const dataDir = path.join(os.homedir(), ".jadu");
 
 export const CONFIG = {
   model: "claude-opus-4-6" as const,
   maxTokens: 16384,
   maxIterations: 10,
-  dbPath: "data/jadu.db",
+  dbPath: path.join(dataDir, "jadu.db"),
   systemPrompt: `You are a gardening assistant. You help manage a complete garden system: a plant catalog, seed inventory, and planting log.
 
 All data is stored in a SQLite database. Use the list_tables tool to discover the schema before writing queries. Use query_database for reads and execute_database for writes.
