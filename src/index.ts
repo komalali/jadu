@@ -45,8 +45,9 @@ function main(): void {
       }
 
       try {
-        const response = await agent.run(trimmed);
-        console.log(`\n${response}\n`);
+        process.stdout.write("\n");
+        await agent.run(trimmed);
+        process.stdout.write("\n\n");
       } catch (error) {
         console.error(
           "\nError:",

@@ -26,6 +26,7 @@ export class AgentLoop {
     this.history.push({ role: "user", content: userMessage });
 
     let iterations = 0;
+    let fullText = "";
 
     while (iterations < this.maxIterations) {
       iterations++;
@@ -37,7 +38,8 @@ export class AgentLoop {
         { type: "code_execution_20260120", name: "code_execution" },
       ];
 
-      const response = await this.client.messages.create({
+      // Stream the response — text tokens print to stdout as they arrive
+      const stream = this.client.messages.stream({
         model: CONFIG.model,
         max_tokens: CONFIG.maxTokens,
         thinking: { type: "adaptive" },
@@ -46,12 +48,21 @@ export class AgentLoop {
         messages: [...this.history],
       });
 
+      // Print text deltas as they arrive
+      stream.on("text", (delta) => {
+        process.stdout.write(delta);
+        fullText += delta;
+      });
+
+      // Wait for the complete message
+      const response = await stream.finalMessage();
+
       // Append assistant response to history BEFORE processing tool calls
       this.history.push({ role: "assistant", content: response.content });
 
-      // If Claude is done talking, extract and return text
+      // If Claude is done talking, return the accumulated text
       if (response.stop_reason === "end_turn") {
-        return this.extractText(response.content);
+        return fullText;
       }
 
       // Server-side tool hit its iteration limit — re-send to continue
@@ -97,14 +108,5 @@ export class AgentLoop {
     }
 
     return "I've reached the maximum number of tool calls for this turn.";
-  }
-
-  private extractText(
-    content: Anthropic.Messages.ContentBlock[]
-  ): string {
-    return content
-      .filter((block): block is Anthropic.Messages.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
   }
 }
