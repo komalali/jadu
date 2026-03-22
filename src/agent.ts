@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ToolRegistry } from "./tools/registry";
 import { CONFIG } from "./config";
+import { renderMarkdown } from "./markdown";
 
 interface AgentOptions {
   maxIterations?: number;
@@ -48,9 +49,14 @@ export class AgentLoop {
         messages: [...this.history],
       });
 
+      // Track raw streamed text for this iteration so we can replace it with rendered markdown
+      let iterationText = "";
+      let lineCount = 0;
+
       // Print text deltas as they arrive
       stream.on("text", (delta) => {
         process.stdout.write(delta);
+        iterationText += delta;
         fullText += delta;
       });
 
@@ -60,8 +66,22 @@ export class AgentLoop {
       // Append assistant response to history BEFORE processing tool calls
       this.history.push({ role: "assistant", content: response.content });
 
-      // If Claude is done talking, return the accumulated text
+      // If Claude is done talking, replace raw text with rendered markdown
       if (response.stop_reason === "end_turn") {
+        if (iterationText) {
+          // Count how many terminal lines the raw text occupied
+          const cols = process.stdout.columns || 80;
+          for (const line of iterationText.split("\n")) {
+            lineCount += Math.max(1, Math.ceil((line.length || 1) / cols));
+          }
+
+          // Move cursor up and clear the raw text
+          process.stdout.write(`\x1b[${lineCount}A\x1b[0J`);
+
+          // Render and print markdown (trim trailing newlines from renderer)
+          const rendered = await renderMarkdown(iterationText);
+          process.stdout.write(rendered);
+        }
         return fullText;
       }
 

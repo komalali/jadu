@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock markdown rendering — return text as-is (avoids marked-terminal dependency in tests)
+vi.mock("../src/markdown", () => ({
+  renderMarkdown: (text: string) => Promise.resolve(text),
+}));
+
 import { AgentLoop } from "../src/agent";
 import { ToolRegistry } from "../src/tools/registry";
 
