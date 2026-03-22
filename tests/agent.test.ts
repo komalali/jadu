@@ -57,9 +57,10 @@ function makePauseTurnResponse() {
   };
 }
 
-// Suppress stdout writes during tests
+// Suppress stdout/stderr writes during tests
 beforeEach(() => {
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
 
 describe("AgentLoop", () => {
@@ -258,5 +259,38 @@ describe("AgentLoop", () => {
 
     // Verify text was written to stdout
     expect(writeSpy).toHaveBeenCalledWith("Hello world!");
+  });
+
+  it("prints tool call status to stderr", async () => {
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    const mockStream = vi
+      .fn()
+      .mockReturnValueOnce(
+        makeMockStream(
+          makeToolUseResponse("query_database", { query: "SELECT 1" }, "t1")
+        )
+      )
+      .mockReturnValueOnce(makeMockStream(makeTextResponse("Done")));
+
+    const mockClient = { messages: { stream: mockStream } } as any;
+
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "query_database",
+      description: "test",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      handler: () => "[]",
+    });
+
+    const agent = new AgentLoop(mockClient, registry);
+    await agent.run("Query something");
+
+    // Verify tool name was printed to stderr
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining("query_database")
+    );
   });
 });

@@ -76,6 +76,9 @@ export class AgentLoop {
 
         for (const block of response.content) {
           if (block.type === "tool_use") {
+            // Show tool call status (dim text so it doesn't compete with output)
+            process.stderr.write(`\x1b[2m  ↳ ${block.name}\x1b[0m\n`);
+
             // Only dispatch custom tools — server-side tools are handled by Anthropic
             if (this.registry.isCustomTool(block.name)) {
               try {
@@ -89,6 +92,9 @@ export class AgentLoop {
                   content: result,
                 });
               } catch (error) {
+                process.stderr.write(
+                  `\x1b[2m  ↳ error: ${error instanceof Error ? error.message : String(error)}\x1b[0m\n`
+                );
                 toolResults.push({
                   type: "tool_result",
                   tool_use_id: block.id,
