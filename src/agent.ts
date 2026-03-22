@@ -49,9 +49,9 @@ export class AgentLoop {
         messages: [...this.history],
       });
 
-      // Track raw streamed text for this iteration so we can replace it with rendered markdown
+      // Save cursor position before streaming, so we can rewrite with markdown after
       let iterationText = "";
-      let lineCount = 0;
+      process.stdout.write("\x1b[s"); // save cursor position
 
       // Print text deltas as they arrive
       stream.on("text", (delta) => {
@@ -69,16 +69,10 @@ export class AgentLoop {
       // If Claude is done talking, replace raw text with rendered markdown
       if (response.stop_reason === "end_turn") {
         if (iterationText) {
-          // Count how many terminal lines the raw text occupied
-          const cols = process.stdout.columns || 80;
-          for (const line of iterationText.split("\n")) {
-            lineCount += Math.max(1, Math.ceil((line.length || 1) / cols));
-          }
+          // Restore cursor to saved position and clear everything after it
+          process.stdout.write("\x1b[u\x1b[0J");
 
-          // Move cursor up and clear the raw text
-          process.stdout.write(`\x1b[${lineCount}A\x1b[0J`);
-
-          // Render and print markdown (trim trailing newlines from renderer)
+          // Render and print markdown
           const rendered = renderMarkdown(iterationText);
           process.stdout.write(rendered);
         }
