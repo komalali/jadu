@@ -42,8 +42,7 @@ export class AgentLoop {
         { type: "web_search_20260209", name: "web_search" },
       ];
 
-      // Stream the response — text tokens print to stdout as they arrive
-      const stream = this.client.messages.stream({
+      const params: Anthropic.MessageCreateParams = {
         model: CONFIG.model,
         max_tokens: CONFIG.maxTokens,
         thinking: { type: "adaptive" },
@@ -51,32 +50,15 @@ export class AgentLoop {
         tools,
         messages: [...this.history],
         ...(this.containerId ? { container: this.containerId } : {}),
-      });
+      };
 
-      // Save cursor position before streaming, so we can rewrite with markdown after
-      let iterationText = "";
-      process.stdout.write("\x1b[s"); // save cursor position
+      // Use non-streaming create() for tool iterations so we reliably get
+      // the container ID back (the streaming SDK doesn't surface it).
+      // Once Claude is done with tools and responds with text, we have
+      // the full response to render as markdown.
+      const response = await this.client.messages.create(params);
 
-      // Print text deltas as they arrive
-      stream.on("text", (delta) => {
-        process.stdout.write(delta);
-        iterationText += delta;
-        fullText += delta;
-      });
-
-      // Capture container ID from the accumulated snapshot on every event.
-      // The streaming SDK doesn't reliably surface container on finalMessage(),
-      // but the snapshot built from SSE events includes it.
-      stream.on("streamEvent", (_event, snapshot) => {
-        if ((snapshot as any).container?.id) {
-          this.containerId = (snapshot as any).container.id;
-        }
-      });
-
-      // Wait for the complete message
-      const response = await stream.finalMessage();
-
-      // Also check finalMessage for container
+      // Track container ID for server-side tool reuse
       if (response.container?.id) {
         this.containerId = response.container.id;
       }
@@ -84,15 +66,12 @@ export class AgentLoop {
       // Append assistant response to history BEFORE processing tool calls
       this.history.push({ role: "assistant", content: response.content });
 
-      // If Claude is done talking, replace raw text with rendered markdown
+      // If Claude is done talking, render markdown and return
       if (response.stop_reason === "end_turn") {
-        if (iterationText) {
-          // Restore cursor to saved position and clear everything after it
-          process.stdout.write("\x1b[u\x1b[0J");
-
-          // Render and print markdown
-          const rendered = renderMarkdown(iterationText);
-          process.stdout.write(rendered);
+        const text = this.extractText(response.content);
+        fullText += text;
+        if (text) {
+          process.stdout.write(renderMarkdown(text));
         }
         return fullText;
       }
@@ -146,5 +125,14 @@ export class AgentLoop {
     }
 
     return "I've reached the maximum number of tool calls for this turn.";
+  }
+
+  private extractText(content: Anthropic.Messages.ContentBlock[]): string {
+    return content
+      .filter(
+        (block): block is Anthropic.Messages.TextBlock => block.type === "text"
+      )
+      .map((block) => block.text)
+      .join("\n");
   }
 }

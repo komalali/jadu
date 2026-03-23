@@ -8,33 +8,11 @@ vi.mock("../src/markdown", () => ({
 import { AgentLoop } from "../src/agent";
 import { ToolRegistry } from "../src/tools/registry";
 
-// Mock stream that simulates client.messages.stream()
-function makeMockStream(response: { content: any[]; stop_reason: string }) {
-  const textHandlers: ((delta: string) => void)[] = [];
-
-  return {
-    on(event: string, handler: (delta: string) => void) {
-      if (event === "text") {
-        textHandlers.push(handler);
-        // Fire text deltas for any text blocks in the response
-        for (const block of response.content) {
-          if (block.type === "text") {
-            handler(block.text);
-          }
-        }
-      }
-      return this; // chainable
-    },
-    finalMessage() {
-      return Promise.resolve(response);
-    },
-  };
-}
-
 function makeTextResponse(text: string) {
   return {
     content: [{ type: "text" as const, text }],
     stop_reason: "end_turn" as const,
+    container: null,
   };
 }
 
@@ -53,6 +31,7 @@ function makeToolUseResponse(
       },
     ],
     stop_reason: "tool_use" as const,
+    container: null,
   };
 }
 
@@ -60,6 +39,7 @@ function makePauseTurnResponse() {
   return {
     content: [{ type: "text" as const, text: "Searching..." }],
     stop_reason: "pause_turn" as const,
+    container: null,
   };
 }
 
@@ -71,30 +51,28 @@ beforeEach(() => {
 
 describe("AgentLoop", () => {
   it("returns text when Claude responds with end_turn", async () => {
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(makeMockStream(makeTextResponse("Hello!")));
-    const mockClient = { messages: { stream: mockStream } } as any;
+      .mockResolvedValueOnce(makeTextResponse("Hello!"));
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     const agent = new AgentLoop(mockClient, registry);
     const result = await agent.run("Hi");
 
     expect(result).toBe("Hello!");
-    expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 
   it("executes a tool call and sends result back", async () => {
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(
-        makeMockStream(
-          makeToolUseResponse("test_tool", { input: "abc" }, "tool_1")
-        )
+      .mockResolvedValueOnce(
+        makeToolUseResponse("test_tool", { input: "abc" }, "tool_1")
       )
-      .mockReturnValueOnce(makeMockStream(makeTextResponse("Done!")));
+      .mockResolvedValueOnce(makeTextResponse("Done!"));
 
-    const mockClient = { messages: { stream: mockStream } } as any;
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     registry.register({
@@ -108,10 +86,10 @@ describe("AgentLoop", () => {
     const result = await agent.run("Use the tool");
 
     expect(result).toBe("Done!");
-    expect(mockStream).toHaveBeenCalledTimes(2);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
 
     // Verify the second call includes the tool result in history
-    const secondCallMessages = mockStream.mock.calls[1][0].messages;
+    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
     const toolResultMessage =
       secondCallMessages[secondCallMessages.length - 1];
     expect(toolResultMessage.role).toBe("user");
@@ -121,30 +99,29 @@ describe("AgentLoop", () => {
   });
 
   it("handles multiple tool calls in one response", async () => {
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(
-        makeMockStream({
-          content: [
-            {
-              type: "tool_use" as const,
-              id: "t1",
-              name: "tool_a",
-              input: {},
-            },
-            {
-              type: "tool_use" as const,
-              id: "t2",
-              name: "tool_b",
-              input: {},
-            },
-          ],
-          stop_reason: "tool_use" as const,
-        })
-      )
-      .mockReturnValueOnce(makeMockStream(makeTextResponse("Both done!")));
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use" as const,
+            id: "t1",
+            name: "tool_a",
+            input: {},
+          },
+          {
+            type: "tool_use" as const,
+            id: "t2",
+            name: "tool_b",
+            input: {},
+          },
+        ],
+        stop_reason: "tool_use" as const,
+        container: null,
+      })
+      .mockResolvedValueOnce(makeTextResponse("Both done!"));
 
-    const mockClient = { messages: { stream: mockStream } } as any;
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     registry.register({
@@ -165,7 +142,7 @@ describe("AgentLoop", () => {
 
     expect(result).toBe("Both done!");
 
-    const secondCallMessages = mockStream.mock.calls[1][0].messages;
+    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
     const toolResultMessage =
       secondCallMessages[secondCallMessages.length - 1];
     expect(toolResultMessage.content).toHaveLength(2);
@@ -174,16 +151,14 @@ describe("AgentLoop", () => {
   });
 
   it("sends tool errors back with is_error flag", async () => {
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(
-        makeMockStream(makeToolUseResponse("bad_tool", {}, "tool_2"))
+      .mockResolvedValueOnce(
+        makeToolUseResponse("bad_tool", {}, "tool_2")
       )
-      .mockReturnValueOnce(
-        makeMockStream(makeTextResponse("I see the error."))
-      );
+      .mockResolvedValueOnce(makeTextResponse("I see the error."));
 
-    const mockClient = { messages: { stream: mockStream } } as any;
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     registry.register({
@@ -200,7 +175,7 @@ describe("AgentLoop", () => {
 
     expect(result).toBe("I see the error.");
 
-    const secondCallMessages = mockStream.mock.calls[1][0].messages;
+    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
     const toolResultMessage =
       secondCallMessages[secondCallMessages.length - 1];
     expect(toolResultMessage.content[0].is_error).toBe(true);
@@ -208,31 +183,29 @@ describe("AgentLoop", () => {
   });
 
   it("continues on pause_turn and eventually gets end_turn", async () => {
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(makeMockStream(makePauseTurnResponse()))
-      .mockReturnValueOnce(
-        makeMockStream(makeTextResponse("Search complete."))
-      );
+      .mockResolvedValueOnce(makePauseTurnResponse())
+      .mockResolvedValueOnce(makeTextResponse("Search complete."));
 
-    const mockClient = { messages: { stream: mockStream } } as any;
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     const agent = new AgentLoop(mockClient, registry);
     const result = await agent.run("Search the web");
 
     expect(result).toContain("Search complete.");
-    expect(mockStream).toHaveBeenCalledTimes(2);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 
   it("stops after max iterations", async () => {
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValue(
-        makeMockStream(makeToolUseResponse("loop_tool", {}, "tool_loop"))
+      .mockResolvedValue(
+        makeToolUseResponse("loop_tool", {}, "tool_loop")
       );
 
-    const mockClient = { messages: { stream: mockStream } } as any;
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     registry.register({
@@ -246,24 +219,23 @@ describe("AgentLoop", () => {
     const result = await agent.run("Loop forever");
 
     expect(result).toContain("maximum number of tool calls");
-    expect(mockStream).toHaveBeenCalledTimes(3);
+    expect(mockCreate).toHaveBeenCalledTimes(3);
   });
 
-  it("streams text to stdout as it arrives", async () => {
+  it("renders markdown to stdout on end_turn", async () => {
     const writeSpy = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
 
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(makeMockStream(makeTextResponse("Hello world!")));
-    const mockClient = { messages: { stream: mockStream } } as any;
+      .mockResolvedValueOnce(makeTextResponse("Hello world!"));
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     const agent = new AgentLoop(mockClient, registry);
     await agent.run("Hi");
 
-    // Verify text was written to stdout
     expect(writeSpy).toHaveBeenCalledWith("Hello world!");
   });
 
@@ -272,16 +244,14 @@ describe("AgentLoop", () => {
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
 
-    const mockStream = vi
+    const mockCreate = vi
       .fn()
-      .mockReturnValueOnce(
-        makeMockStream(
-          makeToolUseResponse("query_database", { query: "SELECT 1" }, "t1")
-        )
+      .mockResolvedValueOnce(
+        makeToolUseResponse("query_database", { query: "SELECT 1" }, "t1")
       )
-      .mockReturnValueOnce(makeMockStream(makeTextResponse("Done")));
+      .mockResolvedValueOnce(makeTextResponse("Done"));
 
-    const mockClient = { messages: { stream: mockStream } } as any;
+    const mockClient = { messages: { create: mockCreate } } as any;
 
     const registry = new ToolRegistry();
     registry.register({
@@ -294,9 +264,34 @@ describe("AgentLoop", () => {
     const agent = new AgentLoop(mockClient, registry);
     await agent.run("Query something");
 
-    // Verify tool name was printed to stderr
     expect(stderrSpy).toHaveBeenCalledWith(
       expect.stringContaining("query_database")
     );
+  });
+
+  it("passes container ID on subsequent calls", async () => {
+    const mockCreate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...makeToolUseResponse("test_tool", {}, "t1"),
+        container: { id: "ctr_123", expires_at: "2026-04-01" },
+      })
+      .mockResolvedValueOnce(makeTextResponse("Done"));
+
+    const mockClient = { messages: { create: mockCreate } } as any;
+
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "test_tool",
+      description: "test",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      handler: () => "ok",
+    });
+
+    const agent = new AgentLoop(mockClient, registry);
+    await agent.run("Use tool");
+
+    // Second call should include the container ID
+    expect(mockCreate.mock.calls[1][0].container).toBe("ctr_123");
   });
 });
