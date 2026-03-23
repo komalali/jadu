@@ -239,11 +239,7 @@ describe("AgentLoop", () => {
     expect(writeSpy).toHaveBeenCalledWith("Hello world!");
   });
 
-  it("prints tool call status to stderr", async () => {
-    const stderrSpy = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
-
+  it("executes tool and continues to next iteration", async () => {
     const mockCreate = vi
       .fn()
       .mockResolvedValueOnce(
@@ -262,11 +258,10 @@ describe("AgentLoop", () => {
     });
 
     const agent = new AgentLoop(mockClient, registry);
-    await agent.run("Query something");
+    const result = await agent.run("Query something");
 
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining("query_database")
-    );
+    expect(result).toBe("Done");
+    expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 
   it("passes container ID on subsequent calls", async () => {

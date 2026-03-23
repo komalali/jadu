@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import ora, { type Ora } from "ora";
 import { ToolRegistry } from "./tools/registry";
 import { CONFIG } from "./config";
 import { renderMarkdown } from "./markdown";
@@ -29,102 +30,103 @@ export class AgentLoop {
 
     let iterations = 0;
     let fullText = "";
+    let spinner: Ora | null = null;
 
-    while (iterations < this.maxIterations) {
-      iterations++;
+    try {
+      while (iterations < this.maxIterations) {
+        iterations++;
 
-      // Build the tools array: custom tool definitions + built-in server-side tools.
-      // Note: web_search_20260209 includes dynamic filtering via its own internal
-      // code execution. Do NOT add a separate code_execution tool alongside it —
-      // that creates a second execution environment and causes container_id errors.
-      const tools: Anthropic.Messages.ToolUnion[] = [
-        ...this.registry.getToolDefinitions(),
-        { type: "web_search_20260209", name: "web_search" },
-      ];
+        const tools: Anthropic.Messages.ToolUnion[] = [
+          ...this.registry.getToolDefinitions(),
+          { type: "web_search_20260209", name: "web_search" },
+        ];
 
-      const params: Anthropic.MessageCreateParams = {
-        model: CONFIG.model,
-        max_tokens: CONFIG.maxTokens,
-        thinking: { type: "adaptive" },
-        system: CONFIG.systemPrompt,
-        tools,
-        messages: [...this.history],
-        ...(this.containerId ? { container: this.containerId } : {}),
-      };
+        const params: Anthropic.MessageCreateParams = {
+          model: CONFIG.model,
+          max_tokens: CONFIG.maxTokens,
+          thinking: { type: "adaptive" },
+          system: CONFIG.systemPrompt,
+          tools,
+          messages: [...this.history],
+          ...(this.containerId ? { container: this.containerId } : {}),
+        };
 
-      // Use non-streaming create() for tool iterations so we reliably get
-      // the container ID back (the streaming SDK doesn't surface it).
-      // Once Claude is done with tools and responds with text, we have
-      // the full response to render as markdown.
-      const response = await this.client.messages.create(params);
+        // Show spinner while waiting for API response
+        spinner = ora({ text: "Thinking...", stream: process.stderr }).start();
 
-      // Track container ID for server-side tool reuse
-      if (response.container?.id) {
-        this.containerId = response.container.id;
-      }
+        const response = await this.client.messages.create(params);
 
-      // Append assistant response to history BEFORE processing tool calls
-      this.history.push({ role: "assistant", content: response.content });
-
-      // If Claude is done talking, render markdown and return
-      if (response.stop_reason === "end_turn") {
-        const text = this.extractText(response.content);
-        fullText += text;
-        if (text) {
-          process.stdout.write(renderMarkdown(text));
+        // Track container ID for server-side tool reuse
+        if (response.container?.id) {
+          this.containerId = response.container.id;
         }
-        return fullText;
-      }
 
-      // Server-side tool hit its iteration limit — re-send to continue
-      if (response.stop_reason === "pause_turn") {
-        continue;
-      }
+        // Append assistant response to history BEFORE processing tool calls
+        this.history.push({ role: "assistant", content: response.content });
 
-      // Claude wants to call tools
-      if (response.stop_reason === "tool_use") {
-        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        // If Claude is done talking, render markdown and return
+        if (response.stop_reason === "end_turn") {
+          spinner.stop();
+          spinner = null;
+          const text = this.extractText(response.content);
+          fullText += text;
+          if (text) {
+            process.stdout.write(renderMarkdown(text));
+          }
+          return fullText;
+        }
 
-        for (const block of response.content) {
-          if (block.type === "tool_use") {
-            // Show tool call status (dim text so it doesn't compete with output)
-            process.stderr.write(`\x1b[2m  ↳ ${block.name}\x1b[0m\n`);
+        // Server-side tool hit its iteration limit — re-send to continue
+        if (response.stop_reason === "pause_turn") {
+          spinner.text = "Continuing...";
+          continue;
+        }
 
-            // Only dispatch custom tools — server-side tools are handled by Anthropic
-            if (this.registry.isCustomTool(block.name)) {
-              try {
-                const result = this.registry.execute(
-                  block.name,
-                  block.input as Record<string, unknown>
-                );
-                toolResults.push({
-                  type: "tool_result",
-                  tool_use_id: block.id,
-                  content: result,
-                });
-              } catch (error) {
-                process.stderr.write(
-                  `\x1b[2m  ↳ error: ${error instanceof Error ? error.message : String(error)}\x1b[0m\n`
-                );
-                toolResults.push({
-                  type: "tool_result",
-                  tool_use_id: block.id,
-                  content:
-                    error instanceof Error ? error.message : String(error),
-                  is_error: true,
-                });
+        // Claude wants to call tools
+        if (response.stop_reason === "tool_use") {
+          const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+          for (const block of response.content) {
+            if (block.type === "tool_use") {
+              spinner.text = block.name;
+
+              // Only dispatch custom tools — server-side tools are handled by Anthropic
+              if (this.registry.isCustomTool(block.name)) {
+                try {
+                  const result = this.registry.execute(
+                    block.name,
+                    block.input as Record<string, unknown>
+                  );
+                  toolResults.push({
+                    type: "tool_result",
+                    tool_use_id: block.id,
+                    content: result,
+                  });
+                } catch (error) {
+                  toolResults.push({
+                    type: "tool_result",
+                    tool_use_id: block.id,
+                    content:
+                      error instanceof Error ? error.message : String(error),
+                    is_error: true,
+                  });
+                }
               }
             }
           }
-        }
 
-        if (toolResults.length > 0) {
-          this.history.push({ role: "user", content: toolResults });
+          if (toolResults.length > 0) {
+            this.history.push({ role: "user", content: toolResults });
+          }
         }
       }
-    }
 
-    return "I've reached the maximum number of tool calls for this turn.";
+      if (spinner) spinner.stop();
+      return "I've reached the maximum number of tool calls for this turn.";
+    } catch (error) {
+      if (spinner) spinner.stop();
+      throw error;
+    }
   }
 
   private extractText(content: Anthropic.Messages.ContentBlock[]): string {
