@@ -52,6 +52,7 @@ export class AgentLoop {
         };
 
         // Show spinner while waiting for API response
+        if (spinner) spinner.stop();
         spinner = ora({ text: "Thinking...", stream: process.stderr }).start();
 
         const response = await this.client.messages.create(params);
