@@ -12,6 +12,7 @@ export class AgentLoop {
   private registry: ToolRegistry;
   private maxIterations: number;
   private history: Anthropic.MessageParam[] = [];
+  private containerId: string | undefined;
 
   constructor(
     client: Anthropic,
@@ -47,6 +48,7 @@ export class AgentLoop {
         system: CONFIG.systemPrompt,
         tools,
         messages: [...this.history],
+        ...(this.containerId ? { container: this.containerId } : {}),
       });
 
       // Save cursor position before streaming, so we can rewrite with markdown after
@@ -62,6 +64,11 @@ export class AgentLoop {
 
       // Wait for the complete message
       const response = await stream.finalMessage();
+
+      // Track container ID for code execution tool reuse
+      if (response.container?.id) {
+        this.containerId = response.container.id;
+      }
 
       // Append assistant response to history BEFORE processing tool calls
       this.history.push({ role: "assistant", content: response.content });
