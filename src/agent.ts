@@ -62,10 +62,17 @@ export class AgentLoop {
         fullText += delta;
       });
 
+      // Capture container ID from the message_start event
+      stream.on("message", (message) => {
+        if (message.container?.id) {
+          this.containerId = message.container.id;
+        }
+      });
+
       // Wait for the complete message
       const response = await stream.finalMessage();
 
-      // Track container ID for code execution tool reuse
+      // Also check finalMessage for container (belt and suspenders with the event listener above)
       if (response.container?.id) {
         this.containerId = response.container.id;
       }
