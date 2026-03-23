@@ -33,11 +33,13 @@ export class AgentLoop {
     while (iterations < this.maxIterations) {
       iterations++;
 
-      // Build the tools array: custom tool definitions + built-in server-side tools
+      // Build the tools array: custom tool definitions + built-in server-side tools.
+      // Note: web_search_20260209 includes dynamic filtering via its own internal
+      // code execution. Do NOT add a separate code_execution tool alongside it —
+      // that creates a second execution environment and causes container_id errors.
       const tools: Anthropic.Messages.ToolUnion[] = [
         ...this.registry.getToolDefinitions(),
         { type: "web_search_20260209", name: "web_search" },
-        { type: "code_execution_20260120", name: "code_execution" },
       ];
 
       // Stream the response — text tokens print to stdout as they arrive
@@ -76,6 +78,7 @@ export class AgentLoop {
       if (response.container?.id) {
         this.containerId = response.container.id;
       }
+
 
       // Append assistant response to history BEFORE processing tool calls
       this.history.push({ role: "assistant", content: response.content });
