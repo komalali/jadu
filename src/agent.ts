@@ -64,21 +64,22 @@ export class AgentLoop {
         fullText += delta;
       });
 
-      // Capture container ID from the message_start event
-      stream.on("message", (message) => {
-        if (message.container?.id) {
-          this.containerId = message.container.id;
+      // Capture container ID from the accumulated snapshot on every event.
+      // The streaming SDK doesn't reliably surface container on finalMessage(),
+      // but the snapshot built from SSE events includes it.
+      stream.on("streamEvent", (_event, snapshot) => {
+        if ((snapshot as any).container?.id) {
+          this.containerId = (snapshot as any).container.id;
         }
       });
 
       // Wait for the complete message
       const response = await stream.finalMessage();
 
-      // Also check finalMessage for container (belt and suspenders with the event listener above)
+      // Also check finalMessage for container
       if (response.container?.id) {
         this.containerId = response.container.id;
       }
-
 
       // Append assistant response to history BEFORE processing tool calls
       this.history.push({ role: "assistant", content: response.content });
